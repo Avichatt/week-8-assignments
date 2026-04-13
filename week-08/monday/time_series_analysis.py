@@ -20,19 +20,17 @@ Sub-steps:
   7. Fleet-Wide Deployment Cost Analysis (Hard)
 """
 
-# %%  — Imports & Configuration
 import os
 import sys
 import warnings
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")  # non-interactive backend for script mode
+matplotlib.use("Agg") 
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import timedelta
 
-# Statistical / TS libraries
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
@@ -40,7 +38,6 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from prophet import Prophet
 
-# ML libraries
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     classification_report,
@@ -55,37 +52,34 @@ from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore")
 
-# ── Paths (relative to this script) ─────────────────────────
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ECOMMERCE_DIR = os.path.join(SCRIPT_DIR, "data", "ecommerce")
 SENSOR_DIR = os.path.join(SCRIPT_DIR, "data", "sensor")
 PLOT_DIR = os.path.join(SCRIPT_DIR, "plots")
 os.makedirs(PLOT_DIR, exist_ok=True)
 
-# ── Named constants (no magic numbers) ──────────────────────
-HOLDOUT_DAYS = 30                # days held out for e-commerce test
-SEASONAL_PERIOD_WEEKLY = 7       # weekly seasonality in days
-FAILURE_WINDOW_MINUTES = 1440    # 24 h expressed in minutes
-ADF_SIGNIFICANCE_LEVEL = 0.05   # p-value cutoff for ADF test
-RANDOM_STATE = 42                # reproducibility seed
-ECOMMERCE_START_DATE = "2017-01-01"  # trim sparse early period
 
-# Cost constants (sensor analysis)
-COST_MISSED_FAILURE = 50_000     # emergency repair
-COST_FALSE_ALARM    = 500        # unnecessary inspection
-COST_TRUE_POSITIVE  = 1_000      # planned preventive repair
-FLEET_SIZE          = 100_000    # sensors deployed fleet-wide
+HOLDOUT_DAYS = 30               
+SEASONAL_PERIOD_WEEKLY = 7       
+FAILURE_WINDOW_MINUTES = 1440    
+ADF_SIGNIFICANCE_LEVEL = 0.05   
+RANDOM_STATE = 42                
+ECOMMERCE_START_DATE = "2017-01-01"  
 
-# Feature-engineering knobs
+)
+COST_MISSED_FAILURE = 50_000     
+COST_FALSE_ALARM    = 500       
+COST_TRUE_POSITIVE  = 1_000     
+FLEET_SIZE          = 100_000    
+
 TOP_N_SENSORS_FOR_ROLLING = 15
-ROLLING_WINDOW_SHORT      = 60   # minutes (1 h)
+ROLLING_WINDOW_SHORT      = 60   
 RF_N_ESTIMATORS           = 200
 RF_MAX_DEPTH              = 15
-SENSOR_TRAIN_FRACTION     = 0.60   # lower to ensure failures in test
+SENSOR_TRAIN_FRACTION     = 0.60   
 
-# ────────────────────────────────────────────────────────────
 # UTILITY FUNCTIONS
-# ────────────────────────────────────────────────────────────
 
 def load_csv_safely(filepath, **kwargs):
     """Load a CSV with validation and error handling."""
@@ -93,7 +87,7 @@ def load_csv_safely(filepath, **kwargs):
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"File not found: {filepath}")
         df = pd.read_csv(filepath, **kwargs)
-        print(f"  ✅ Loaded {os.path.basename(filepath)}: "
+        print(f"  Loaded {os.path.basename(filepath)}: "
               f"{df.shape[0]:,} rows × {df.shape[1]} cols")
         return df
     except Exception as exc:
@@ -128,7 +122,7 @@ def compute_forecast_metrics(actual, predicted, label="Forecast"):
     actual, predicted = np.asarray(actual), np.asarray(predicted)
     mae  = mean_absolute_error(actual, predicted)
     rmse = np.sqrt(mean_squared_error(actual, predicted))
-    # Symmetric MAPE — handles zeros gracefully
+   
     denom = (np.abs(actual) + np.abs(predicted)) / 2
     nonzero = denom != 0
     mape = (np.mean(np.abs(actual[nonzero] - predicted[nonzero])
@@ -156,9 +150,9 @@ def save_plot(fig, filename, dpi=150):
         plt.close(fig)
 
 
-# ────────────────────────────────────────────────────────────
-# SUB-STEP 1 — E-Commerce Data Characterisation  (EASY)
-# ────────────────────────────────────────────────────────────
+
+# SUB-STEP 1 — E-Commerce Data Characterisation  
+
 
 def prepare_ecommerce_daily_sales(ecommerce_dir):
     """
@@ -192,12 +186,12 @@ def prepare_ecommerce_daily_sales(ecommerce_dir):
              .rename("daily_revenue"))
     daily.index.name = "date"
 
-    # fill missing calendar days
+   
     full_idx = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
     daily = daily.reindex(full_idx, fill_value=0)
     daily.index.name = "date"
 
-    # trim sparse early months
+   
     daily = daily.loc[ECOMMERCE_START_DATE:]
     daily = daily.to_frame()
 
@@ -214,7 +208,7 @@ def characterise_ecommerce_series(daily_sales):
     """
     s = daily_sales["daily_revenue"]
 
-    # ── 1a. Descriptive statistics ──
+   # Descriptive statistics 
     print("\n" + "=" * 60)
     print("1a · DESCRIPTIVE STATISTICS")
     print("=" * 60)
@@ -225,7 +219,7 @@ def characterise_ecommerce_series(daily_sales):
     print(f"     {'skewness':<10}: {s.skew():>12.3f}")
     print(f"     {'kurtosis':<10}: {s.kurtosis():>12.3f}")
 
-    # ── 1b. Stationarity ──
+    #  Stationarity 
     print("\n" + "=" * 60)
     print("1b · STATIONARITY ANALYSIS")
     print("=" * 60)
@@ -233,7 +227,7 @@ def characterise_ecommerce_series(daily_sales):
     s_diff   = s.diff().dropna()
     adf_diff = compute_adf_test(s_diff, "First-differenced revenue")
 
-    # ── 1c. Seasonal decomposition ──
+    # Seasonal decomposition 
     print("\n" + "=" * 60)
     print("1c · SEASONAL DECOMPOSITION (period = 7 days)")
     print("=" * 60)
@@ -253,7 +247,7 @@ def characterise_ecommerce_series(daily_sales):
     fig.tight_layout()
     save_plot(fig, "substep1_decomposition.png")
 
-    # ── 1d. ACF / PACF ──
+    #  ACF / PACF
     print("\n" + "=" * 60)
     print("1d · ACF / PACF")
     print("=" * 60)
@@ -269,7 +263,6 @@ def characterise_ecommerce_series(daily_sales):
     fig.tight_layout()
     save_plot(fig, "substep1_acf_pacf.png")
 
-    # ── 1e. Data-quality checks ──
     print("\n" + "=" * 60)
     print("1e · DATA-QUALITY REPORT")
     print("=" * 60)
@@ -284,7 +277,6 @@ def characterise_ecommerce_series(daily_sales):
     print(f"     Missing values   : {s.isnull().sum()}")
     print(f"     Zero-revenue days: {(s == 0).sum()}")
 
-    # ── 1f. Overview plots ──
     fig, axes = plt.subplots(2, 1, figsize=(14, 8))
     axes[0].plot(s.index, s.values, lw=0.8, color="#2196F3")
     axes[0].axhline(s.mean(), color="red", ls="--", alpha=0.5, label="Mean")
@@ -327,9 +319,8 @@ def characterise_ecommerce_series(daily_sales):
     return findings, decomp
 
 
-# ────────────────────────────────────────────────────────────
-# SUB-STEP 2 — Sensor Data Cleaning  (EASY)
-# ────────────────────────────────────────────────────────────
+
+# SUB-STEP 2 — Sensor Data Cleaning  
 
 def identify_sensor_issues(sensor_df):
     """Audit every data-quality dimension of the sensor dataset."""
@@ -338,14 +329,14 @@ def identify_sensor_issues(sensor_df):
     print("=" * 60)
     issues = {}
 
-    # — missing values —
+    
     null_pct = (sensor_df.isnull().sum() / len(sensor_df) * 100).round(2)
     cols_with_nulls = null_pct[null_pct > 0].sort_values(ascending=False)
     print(f"\n  Missing-value summary ({len(cols_with_nulls)} columns):")
     for col, pct in cols_with_nulls.items():
-        flag = ("⛔ DROP" if pct > 99
-                else "⚠️ HIGH" if pct > 20
-                else "ℹ️  low")
+        flag = (" DROP" if pct > 99
+                else " HIGH" if pct > 20
+                else "  low")
         print(f"     {col:>12}: {pct:>6.2f}%  {flag}")
 
     issues["fully_null"]  = list(null_pct[null_pct > 99].index)
@@ -355,14 +346,14 @@ def identify_sensor_issues(sensor_df):
     # — redundant columns —
     issues["has_unnamed"] = "Unnamed: 0" in sensor_df.columns
     if issues["has_unnamed"]:
-        print("  ⚠️  Redundant index column 'Unnamed: 0' detected")
+        print("  Redundant index column 'Unnamed: 0' detected")
 
-    # — duplicates —
+    
     n_dup = sensor_df.duplicated().sum()
     print(f"  Duplicate rows: {n_dup}")
     issues["n_duplicates"] = n_dup
 
-    # — timestamp continuity —
+   
     if "timestamp" in sensor_df.columns:
         ts = pd.to_datetime(sensor_df["timestamp"])
         expected = int((ts.max() - ts.min()).total_seconds() / 60) + 1
@@ -371,7 +362,7 @@ def identify_sensor_issues(sensor_df):
               f"actual {len(sensor_df):,}, gap = {gap:,}")
         issues["timestamp_gap"] = gap
 
-    # — class distribution —
+   
     if "machine_status" in sensor_df.columns:
         dist = sensor_df["machine_status"].value_counts()
         print(f"\n  Machine-status distribution:")
@@ -404,23 +395,22 @@ def clean_sensor_data(sensor_df, issues):
     print("=" * 60)
     df = sensor_df.copy()
 
-    # 1. fully-null columns
+  
     for col in issues.get("fully_null", []):
         print(f"  ✂ Dropped {col} (100 % null)")
         df.drop(columns=[col], inplace=True)
 
-    # 2. redundant index
+   
     if issues.get("has_unnamed") and "Unnamed: 0" in df.columns:
         print("  ✂ Dropped 'Unnamed: 0' (redundant index)")
         df.drop(columns=["Unnamed: 0"], inplace=True)
 
-    # 3. timestamps
+   
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df.sort_values("timestamp", inplace=True)
     df.reset_index(drop=True, inplace=True)
     print("  🔧 Parsed & sorted timestamps")
 
-    # 4–5. fill sensor NaNs
     sensor_cols = [c for c in df.columns if c.startswith("sensor_")]
     n_null_before = df[sensor_cols].isnull().sum().sum()
     df[sensor_cols] = df[sensor_cols].ffill().bfill()
@@ -429,7 +419,7 @@ def clean_sensor_data(sensor_df, issues):
 
     assert n_null_after == 0, "Sensor nulls remain after cleaning!"
 
-    # --- documentation ---
+   
     print("\n" + "=" * 60)
     print("2c · TREATMENT DOCUMENTATION")
     print("=" * 60)
@@ -452,9 +442,9 @@ def clean_sensor_data(sensor_df, issues):
     return df
 
 
-# ────────────────────────────────────────────────────────────
-# SUB-STEP 3 — ARIMA Model  (MEDIUM)
-# ────────────────────────────────────────────────────────────
+
+# SUB-STEP 3 — ARIMA Model  
+
 
 def create_temporal_split(daily_sales, holdout_days=HOLDOUT_DAYS):
     """
@@ -529,9 +519,9 @@ def evaluate_arima_forecast(arima_res, test_series):
     return metrics, fcast
 
 
-# ────────────────────────────────────────────────────────────
-# SUB-STEP 4 — SARIMA + Prophet  (MEDIUM)
-# ────────────────────────────────────────────────────────────
+
+# SUB-STEP 4 — SARIMA + Prophet  
+
 
 def fit_sarima_model(train_series,
                      order=(2, 1, 2),
@@ -581,7 +571,7 @@ def fit_prophet_model(train_df):
                 seasonality_mode="multiplicative",
                 changepoint_prior_scale=0.05)
     m.fit(pdf)
-    print("     ✅ Prophet fitted")
+    print(" Prophet fitted")
     return m
 
 
@@ -626,10 +616,10 @@ def compare_models(test_series, arima_fcast,
 
     if max(sarima_imp, prophet_imp) > IMPROVEMENT_THRESHOLD:
         winner = "SARIMA" if m_sa["mape"] < m_pr["mape"] else "Prophet"
-        print(f"\n  ✅ Recommend {winner} — captures weekly patterns "
+        print(f"\n Recommend {winner} — captures weekly patterns "
               f"ARIMA misses (> {IMPROVEMENT_THRESHOLD}% gain)")
     else:
-        print(f"\n  ⚖️ Improvement < {IMPROVEMENT_THRESHOLD}% — "
+        print(f"\n  Improvement < {IMPROVEMENT_THRESHOLD}% — "
               "use simpler ARIMA")
 
     fig, ax = plt.subplots(figsize=(14, 5))
@@ -651,9 +641,8 @@ def compare_models(test_series, arima_fcast,
     return {"arima": m_ar, "sarima": m_sa, "prophet": m_pr}
 
 
-# ────────────────────────────────────────────────────────────
-# SUB-STEP 5 — Sensor Failure Prediction  (MEDIUM)
-# ────────────────────────────────────────────────────────────
+
+# SUB-STEP 5 — Sensor Failure Prediction  
 
 def identify_failure_episodes(sensor_df):
     """
@@ -713,18 +702,18 @@ def engineer_sensor_features(sensor_df, episodes):
     df = sensor_df.copy()
     sensor_cols = [c for c in df.columns if c.startswith("sensor_")]
 
-    # ── target variable ──
+   
     # Label rows as "at risk" if a failure starts within next 24 h.
     # Also label rows DURING a failure episode (RECOVERING/BROKEN)
     # so that the model can learn the transition.
     df["failure_in_24h"] = 0
     for _, ep in episodes.iterrows():
-        # 24 h window before onset
+        
         window_start = ep["start"] - timedelta(minutes=FAILURE_WINDOW_MINUTES)
         mask_before = ((df["timestamp"] >= window_start)
                        & (df["timestamp"] < ep["start"]))
         df.loc[mask_before, "failure_in_24h"] = 1
-        # also label the episode itself
+      
         mask_during = ((df["timestamp"] >= ep["start"])
                        & (df["timestamp"] <= ep["end"]))
         df.loc[mask_during, "failure_in_24h"] = 1
@@ -740,7 +729,7 @@ def engineer_sensor_features(sensor_df, episodes):
     print(f"     failure_in_24h = 0: {neg:,}")
     print(f"     failure_in_24h = 1: {pos:,}")
 
-    # ── rolling features for top-variance sensors ──
+   
     variances = df_all[sensor_cols].var().sort_values(ascending=False)
     top = variances.head(TOP_N_SENSORS_FOR_ROLLING).index.tolist()
     print(f"  Rolling features for top {TOP_N_SENSORS_FOR_ROLLING} sensors …")
@@ -798,9 +787,9 @@ def build_failure_model(df_normal, feature_cols):
     print(f"  Train positive rate: {train['failure_in_24h'].mean():.4%}")
     print(f"  Test  positive rate: {test['failure_in_24h'].mean():.4%}")
 
-    # Safety check: if test has no positives, adjust split
+  
     if test['failure_in_24h'].sum() == 0:
-        print("  ⚠️ No positive samples in test — re-splitting at 50/50")
+        print("  No positive samples in test — re-splitting at 50/50")
         split = int(len(df_normal) * 0.50)
         train, test = df_normal.iloc[:split], df_normal.iloc[split:]
         print(f"  Train: {len(train):,} rows  (→ {train['timestamp'].max()})")
@@ -817,7 +806,7 @@ def build_failure_model(df_normal, feature_cols):
     X_tr_s = scaler.fit_transform(X_tr)
     X_te_s = scaler.transform(X_te)
 
-    print(f"\n  🔧 Training RandomForest "
+    print(f"\n  Training RandomForest "
           f"(n={RF_N_ESTIMATORS}, depth={RF_MAX_DEPTH}, balanced) …")
     clf = RandomForestClassifier(
         n_estimators=RF_N_ESTIMATORS,
@@ -850,14 +839,14 @@ def build_failure_model(df_normal, feature_cols):
     print(f"  Precision : {precision:.3f}  "
           f"({precision * 100:.1f}% of alerts are genuine)")
 
-    # Feature importance
+    
     imp = pd.Series(clf.feature_importances_,
                     index=feature_cols).sort_values(ascending=False)
     print("\n  Top-10 features:")
     for feat, val in imp.head(10).items():
         print(f"     {feat}: {val:.4f}")
 
-    # PR curve
+ 
     prec_c, rec_c, _ = precision_recall_curve(y_te, y_prob)
     pr_auc = auc(rec_c, prec_c)
 
@@ -874,30 +863,28 @@ def build_failure_model(df_normal, feature_cols):
     fig.tight_layout()
     save_plot(fig, "substep5_failure_model.png")
 
-    # ── Maintenance-team presentation ──
+  
     print("\n" + "=" * 60)
     print("5c · MAINTENANCE TEAM DASHBOARD GUIDE")
     print("=" * 60)
     print("""
-    ┌──────────────────────────────────────────────────┐
-    │      EQUIPMENT FAILURE EARLY-WARNING SYSTEM      │
-    ├──────────────────────────────────────────────────┤
-    │  🟢 GREEN   Risk < 30 %  → Normal operation     │
-    │  🟡 YELLOW  Risk 30–70 % → Schedule inspection  │
-    │  🔴 RED     Risk > 70 %  → Immediate action     │
-    ├──────────────────────────────────────────────────┤
-    │  The system checks every minute and warns you    │
-    │  UP TO 24 HOURS before a failure happens,        │
-    │  giving time for planned maintenance.            │
-    └──────────────────────────────────────────────────┘
+    
+    EQUIPMENT FAILURE EARLY-WARNING SYSTEM      
+    
+    GREEN   Risk < 30 %  → Normal operation         
+    YELLOW  Risk 30–70 % → Schedule inspection      
+    RED     Risk > 70 %  → Immediate action         
+    
+    The system checks every minute and warns up TO 24 HOURS before a failure happens giving time for planned maintenance.            
+    
     """)
 
     return clf, scaler, y_te, y_pred, y_prob, feature_cols, imp, test
 
 
-# ────────────────────────────────────────────────────────────
-# SUB-STEP 6 — Rule-Based vs ML  (HARD)
-# ────────────────────────────────────────────────────────────
+
+# SUB-STEP 6 — Rule-Based vs ML  
+
 
 def find_best_single_sensor(importances):
     """Return the raw sensor with the highest feature importance."""
@@ -957,7 +944,6 @@ def evaluate_rule_vs_model(test_df, best_sensor,
     print(f"     Precision: {best_row['precision']:.3f}")
     print(f"     Cost     : ${best_cost:,.0f}")
 
-    # ML model at default threshold 0.5
     ml_preds = (y_prob >= 0.5).astype(int)
     cm_ml = confusion_matrix(y_test, ml_preds, labels=[0, 1])
     tn_ml, fp_ml, fn_ml, tp_ml = cm_ml.ravel()
@@ -989,14 +975,13 @@ def evaluate_rule_vs_model(test_df, best_sensor,
     """)
 
     winner = "ML model" if ml_cost < best_cost else "Simple rule"
-    print(f"  ✅ RECOMMENDATION: Deploy the {winner} as primary.\n")
+    print(f" RECOMMENDATION: Deploy the {winner} as primary.\n")
 
     return best_sensor, best_thresh, best_dir, best_cost, ml_cost
 
 
-# ────────────────────────────────────────────────────────────
-# SUB-STEP 7 — Fleet-Wide Deployment Cost  (HARD)
-# ────────────────────────────────────────────────────────────
+# SUB-STEP 7 — Fleet-Wide Deployment Cost 
+
 
 def calculate_fleet_cost(y_test, y_prob):
     """
@@ -1048,9 +1033,7 @@ def calculate_fleet_cost(y_test, y_prob):
     cost_df = pd.DataFrame(rows)
     f1_df   = pd.DataFrame(f1s)
 
-    # cost-optimal
     co = cost_df.loc[cost_df["daily_cost"].idxmin()]
-    # F1-optimal
     fo = f1_df.loc[f1_df["f1"].idxmax()]
 
     print(f"\n  💰 COST-OPTIMAL threshold : {co['threshold']:.2f}")
@@ -1074,7 +1057,7 @@ def calculate_fleet_cost(y_test, y_prob):
               "F1 is a reasonable proxy here.")
     else:
         ratio = COST_MISSED_FAILURE / COST_FALSE_ALARM
-        print(f"\n  ⚠️ Thresholds DIFFER — "
+        print(f"\n Thresholds DIFFER — "
               f"using F1 costs ${diff:,.0f}/day extra.")
         print(f"     Why? F1 weights FP and FN equally, "
               f"but a missed failure is {ratio:.0f}× costlier.")
@@ -1084,7 +1067,6 @@ def calculate_fleet_cost(y_test, y_prob):
               f"not F1.\n  F1 is useful during development but misleading "
               f"when costs are asymmetric.")
 
-    # plots
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     axes[0].plot(cost_df["threshold"], cost_df["daily_cost"], "b-", lw=2)
     axes[0].axvline(co["threshold"], color="green", ls="--",
@@ -1114,9 +1096,7 @@ def calculate_fleet_cost(y_test, y_prob):
     return co, fo, cost_df
 
 
-# ────────────────────────────────────────────────────────────
-# MAIN
-# ────────────────────────────────────────────────────────────
+
 
 def main():
     """Execute all seven sub-steps end-to-end."""
@@ -1125,24 +1105,21 @@ def main():
     print("  E-Commerce Forecasting & Sensor Failure Prediction")
     print("=" * 70)
 
-    # ── SUB-STEP 1 (Easy) ──────────────────────────────────
     print("\n\n" + "=" * 70)
-    print("  🟢  SUB-STEP 1: E-COMMERCE DATA CHARACTERISATION")
+    print("  SUB-STEP 1: E-COMMERCE DATA CHARACTERISATION")
     print("=" * 70)
     daily_sales = prepare_ecommerce_daily_sales(ECOMMERCE_DIR)
     findings, decomp = characterise_ecommerce_series(daily_sales)
 
-    # ── SUB-STEP 2 (Easy) ──────────────────────────────────
     print("\n\n" + "=" * 70)
-    print("  🟢  SUB-STEP 2: SENSOR DATA CLEANING")
+    print("  SUB-STEP 2: SENSOR DATA CLEANING")
     print("=" * 70)
     sensor_raw = load_csv_safely(os.path.join(SENSOR_DIR, "sensor.csv"))
     issues = identify_sensor_issues(sensor_raw)
     sensor_clean = clean_sensor_data(sensor_raw, issues)
 
-    # ── SUB-STEP 3 (Medium) ────────────────────────────────
     print("\n\n" + "=" * 70)
-    print("  🟡  SUB-STEP 3: ARIMA MODEL")
+    print("  SUB-STEP 3: ARIMA MODEL")
     print("=" * 70)
     train_s, test_s = create_temporal_split(daily_sales)
     arima_res = fit_arima_model(train_s["daily_revenue"])
@@ -1150,9 +1127,8 @@ def main():
         arima_res, test_s["daily_revenue"]
     )
 
-    # ── SUB-STEP 4 (Medium) ────────────────────────────────
     print("\n\n" + "=" * 70)
-    print("  🟡  SUB-STEP 4: SARIMA & PROPHET — SEASONAL PATTERNS")
+    print("  SUB-STEP 4: SARIMA & PROPHET — SEASONAL PATTERNS")
     print("=" * 70)
     sarima_res = fit_sarima_model(train_s["daily_revenue"])
     prophet_m  = fit_prophet_model(train_s[["daily_revenue"]])
@@ -1161,18 +1137,16 @@ def main():
         sarima_res, prophet_m, train_s[["daily_revenue"]]
     )
 
-    # ── SUB-STEP 5 (Medium) ────────────────────────────────
     print("\n\n" + "=" * 70)
-    print("  🟡  SUB-STEP 5: SENSOR FAILURE PREDICTION")
+    print(" SUB-STEP 5: SENSOR FAILURE PREDICTION")
     print("=" * 70)
     episodes = identify_failure_episodes(sensor_clean)
     df_feat, feat_cols = engineer_sensor_features(sensor_clean, episodes)
     (clf, scaler, y_te, y_pred, y_prob,
      feat_cols, imp, test_df) = build_failure_model(df_feat, feat_cols)
 
-    # ── SUB-STEP 6 (Hard) ─────────────────────────────────
     print("\n\n" + "=" * 70)
-    print("  🔴  SUB-STEP 6: RULE-BASED vs ML COMPARISON")
+    print(" SUB-STEP 6: RULE-BASED vs ML COMPARISON")
     print("=" * 70)
     best_sensor = find_best_single_sensor(imp)
     (best_sns, best_thr, best_dir,
@@ -1180,15 +1154,14 @@ def main():
         test_df, best_sensor, y_te, y_prob, feat_cols
     )
 
-    # ── SUB-STEP 7 (Hard) ─────────────────────────────────
     print("\n\n" + "=" * 70)
-    print("  🔴  SUB-STEP 7: FLEET-WIDE DEPLOYMENT COST")
+    print(" SUB-STEP 7: FLEET-WIDE DEPLOYMENT COST")
     print("=" * 70)
     co, fo, costs_df = calculate_fleet_cost(y_te, y_prob)
 
     # ── Summary ────────────────────────────────────────────
     print("\n\n" + "=" * 70)
-    print("  ✅  ALL SUB-STEPS COMPLETE")
+    print(" ALL SUB-STEPS COMPLETE")
     print("=" * 70)
     print(f"""
     E-Commerce Forecasting
