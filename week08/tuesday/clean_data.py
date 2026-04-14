@@ -5,11 +5,11 @@ import os
 def clean_hospital_data(input_path, output_path):
     df = pd.read_csv(input_path)
     
-    # Age
+   
     df['age'] = pd.to_numeric(df['age'], errors='coerce')
     df['age'] = df['age'].fillna(df['age'].median()).clip(0, 110)
     
-    # BMI
+   
     def parse_bmi(val):
         if pd.isna(val): return np.nan
         if isinstance(val, str): val = val.replace(' kg/m2', '').strip()
@@ -18,12 +18,12 @@ def clean_hospital_data(input_path, output_path):
     df['bmi'] = df['bmi'].apply(parse_bmi)
     df['bmi'] = df['bmi'].fillna(df['bmi'].median()).clip(10, 60)
     
-    # Gender
+    
     df['gender'] = df['gender'].astype(str).str.upper().map({
         'MALE': 'Male', 'M': 'Male', 'FEMALE': 'Female', 'F': 'Female'
     }).fillna('Unknown')
     
-    # BP
+   
     df['blood_pressure'] = df['blood_pressure'].replace(0, np.nan).fillna(df['blood_pressure'].median())
     
     df.to_csv(output_path, index=False)
