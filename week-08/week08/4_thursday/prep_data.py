@@ -10,26 +10,26 @@ def prep_datasets():
     archive1 = r"C:\Users\Avi\Downloads\archive\RELIANCE.csv"
     archive2 = r"C:\Users\Avi\Downloads\archive (1)\Bitext_Sample_Customer_Support_Training_Dataset_27K_responses-v11.csv"
     
-    # 1. Stock Prices
+    # Stock Prices
     print("Preparing stock_prices.csv...")
     if os.path.exists(archive1):
         shutil.copy(archive1, os.path.join(base_dir, "stock_prices.csv"))
     else:
         print(f"Error: {archive1} not found.")
 
-    # 2. Chat Logs
+    # hat Logs
     print("Preparing chat_logs.csv...")
     if os.path.exists(archive2):
         df = pd.read_csv(archive2)
-        # Take a subset to make processing faster, 5000 rows
+       
         df = df.sample(n=5000, random_state=42).reset_index(drop=True)
         
-        # Add synthetic customer_ids (average 3 interactions per customer)
+        
         n_customers = 5000 // 3
         customer_ids = np.random.randint(1, n_customers + 1, size=5000)
         df['customer_id'] = [f"CUST_{i:04d}" for i in customer_ids]
         
-        # Sort by customer_id
+        
         df = df.sort_values(by=['customer_id']).reset_index(drop=True)
         
         def random_date(start, end):
@@ -56,7 +56,7 @@ def prep_datasets():
             
         df['timestamp'] = timestamps
         
-        # Add churn logic
+      
         churn_labels = []
         for _, group in df.groupby('customer_id'):
             churn_prob = 0.1
