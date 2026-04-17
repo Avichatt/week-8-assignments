@@ -25,10 +25,10 @@ def create_sequences(data, window_size):
         y.append(data[i + window_size])
     return np.array(X), np.array(y)
 
-# 1. Stock Data Prep
+
 def stock_prep(filepath):
     df = pd.read_csv(filepath)
-    # Using 'Close' column
+    
     close_prices = df['Close'].values.reshape(-1, 1)
     
     scaler = MinMaxScaler()
@@ -43,14 +43,13 @@ def stock_prep(filepath):
     
     return X_train, X_test, y_train, y_test, scaler
 
-# 2. Chat Logs Prep
+
 def chat_logs_prep(filepath):
     df = pd.read_csv(filepath)
-    # the timestamp column will not parse with standard datetime call due to mixed formats
-    # Use pandas to_datetime with mixed format handling or format='mixed'
+    
     df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed', errors='coerce')
     
-    # Check EDA: basic aggregation
+ 
     df['is_cancel'] = df['intent'].apply(lambda x: 1 if 'cancel' in str(x).lower() else 0)
     agg_df = df.groupby('customer_id').agg({
         'timestamp': ['count', 'min', 'max'],
